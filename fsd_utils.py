@@ -50,7 +50,7 @@ from transformers.generation.beam_search import BeamScorer, BeamSearchScorer, Co
 from transformers.generation.candidate_generator import (
     AssistedCandidateGenerator,
     # FuzzyAssistedCandidateGenerator,
-    BackoffCandidateGenerator,
+    # BackoffCandidateGenerator,  # This class does not exist in transformers
     CandidateGenerator,
     PromptLookupCandidateGenerator,
     _crop_past_key_values,
@@ -1991,6 +1991,9 @@ def _speculative_backoff_sampling(
     eos_token_id,
     candidate_generator_type='classifier',
 ):
+    """
+    Applies sampling as in the fuzzy speculative decoding
+    """
     
     initial_start_time = time.time()
     new_candidate_input_ids = candidate_input_ids[:, -candidate_length:]
