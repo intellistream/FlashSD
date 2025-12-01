@@ -130,7 +130,10 @@ from transformers.generation.candidate_generator import CandidateGenerator
 if TYPE_CHECKING:
     from transformers.modeling_utils import PreTrainedModel
     from transformers.generation.configuration_utils import GenerationConfig
-    
+
+
+from flashSD_utils import FlashSDVerifier
+
 class AssistedCandidateGenerator(CandidateGenerator): # VERY slightly changed AssistedCandidateGenerator class to return both candidates AND logits (as opposed to just candidates)
     """
     `CandidateGenerator` class to be used for assisted generation and speculative decoding. This class generates
@@ -593,6 +596,9 @@ class FuzzyGenerationMixin (GenerationMixin):
         fsd_div_type: Optional[str] = None,
         fsd_div_logit_processor: Optional[LogitsProcessorList] = None,
         fsd_tracking: Optional[bool] = False,
+        # FlashSD-specific parameters
+        flash_sd_entropy_scale: Optional[float] = 0.0,
+        flash_sd_lookahead: Optional[float] = 0.0,
         **kwargs,
     ) -> Union[GenerateOutput, torch.LongTensor]:
         r"""
@@ -1034,6 +1040,9 @@ class FuzzyGenerationMixin (GenerationMixin):
                     streamer=streamer,
                     fsd_div_type=fsd_div_type,
                     fsd_div_logit_processor=fsd_div_logit_processor,
+                    # flashSD parameters
+                    flash_sd_entropy_scale=flash_sd_entropy_scale,
+                    flash_sd_lookahead=flash_sd_lookahead,
                     **model_kwargs,
                 )
         elif generation_mode == GenerationMode.DOLA_GENERATION:
@@ -1568,6 +1577,9 @@ class FuzzyGenerationMixin (GenerationMixin):
         streamer: Optional["BaseStreamer"],
         fsd_div_type: str="js_div",
         div_logit_processor: Optional[LogitsProcessorList]=[],
+        # Additional parameters for FlashSD
+        flash_sd_entropy_scale: Optional[float] = 0.0,
+        flash_sd_lookahead: Optional[float] = 0.0,
         **model_kwargs,
     ) -> Union[GenerateNonBeamOutput, torch.LongTensor]:
         r"""
@@ -1745,7 +1757,43 @@ class FuzzyGenerationMixin (GenerationMixin):
             # Case 1: `do_sample=True` and we have logits for the candidates (originally from speculative decoding)
             # 👉 Apply algorithm 1 from the speculative decoding paper (https://arxiv.org/pdf/2211.17192.pdf).
             # if do_sample and candidate_logits is not None:
-            if candidate_logits is not None:
+            use_flash_sd = flash_sd_entropy_scale > 0 or flash_sd_lookahead > 0
+
+            if use_flash_sd and candidate_logits is not None:
+                # 实例化 FlashSD
+                verifier = FlashSD(
+                    entropy_scale=flash_sd_entropy_scale,
+                    lookahead=flash_sd_lookahead,
+                    div_type=fsd_div_type
+                )
+
+                # 调用核心算法
+                (
+                    valid_tokens, 
+                    n_matches, 
+                    new_logits, 
+                    correction_term, 
+                    true_divs, 
+                    acceptance_time, 
+                    spec_sampling_time
+                ) = verifier.verify_and_sample(
+                    candidate_input_ids=candidate_input_ids,
+                    candidate_logits=candidate_logits, 
+                    target_logits=new_logits_unprocessed if len(div_logits_processor) > 0 else next_token_logits, # 使用 Raw Logits
+                    candidate_length=candidate_length,
+                    is_done_candidate=is_done_candidate
+                )
+
+                # 保持原有的 Metric Tracking 逻辑不变
+                if hasattr(candidate_generator.assistant_model, "n_matches_list"):
+                    candidate_generator.assistant_model.kl_divs.extend(true_divs.view(-1).tolist())
+                    candidate_generator.assistant_model.n_matches_list.append(n_matches + correction_term)
+                    candidate_generator.assistant_model.totals_list.append(valid_tokens.shape[-1])
+                    candidate_generator.assistant_model.n_discarded_list.append(candidate_input_ids.shape[-1] - n_matches)
+                    candidate_generator.assistant_model.candidate_sequences_list.append(candidate_length)
+                print(f"Using FlashSD with entropy_scale={flash_sd_entropy_scale}, lookahead={flash_sd_lookahead}")
+
+            elif candidate_logits is not None:
                 start_time = time.time()
                 div_threshold = candidate_generator.assistant_model.div_threshold # makeshift solution, should find better way to pass this in
                 valid_tokens, n_matches, new_logits, correction_term, divs, acceptance_time, spec_sampling_time = _speculative_backoff_sampling(

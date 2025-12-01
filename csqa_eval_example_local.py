@@ -56,7 +56,6 @@ if __name__ == "__main__":
     # Create the parser
     parser = argparse.ArgumentParser(description='Script Configuration')
     
-
     # Add arguments - Using local cached models
     parser.add_argument('--small_model_id', type=str, 
                        default="/home/lcw/.cache/huggingface/hub/models--Qwen--Qwen2.5-7B-Instruct/snapshots/a09a35458c702b33eeacc393d103063234e8bc28", 
@@ -72,6 +71,9 @@ if __name__ == "__main__":
     parser.add_argument('--temperature', type=float, default=0.6, help='Positive probability threshold')
     parser.add_argument('--top_p', type=float, default=0.9, help='Positive probability threshold')
     parser.add_argument('--top_k', type=int, default=50, help='Positive probability threshold')
+    # [新增] Flash-SD 专属参数
+    parser.add_argument('--flash_sd_entropy_scale', type=float, default=0.0, help='Entropy regulation scale (alpha)')
+    parser.add_argument('--flash_sd_lookahead', type=float, default=0.0, help='Lookahead confidence threshold')
 
     args, unknown = parser.parse_known_args()
 
@@ -86,8 +88,10 @@ fsd_div_type = args.fsd_div_type
 temperature = args.temperature
 top_p = args.top_p
 top_k = args.top_k
+flash_sd_entropy_scale = args.flash_sd_entropy_scale
+flash_sd_lookahead = args.flash_sd_lookahead
 
-print(f"loaded arguments - small_model_id: {small_model_id}, large_model_id: {large_model_id}, fsd_div_threshold: {fsd_div_threshold}, num_evals: {num_evals}, do_sample: {do_sample}, fsd_div_type: {fsd_div_type}, temperature: {temperature}, top_p: {top_p}")
+print(f"loaded arguments - small_model_id: {small_model_id}, large_model_id: {large_model_id}, fsd_div_threshold: {fsd_div_threshold}, num_evals: {num_evals}, do_sample: {do_sample}, fsd_div_type: {fsd_div_type}, temperature: {temperature}, top_p: {top_p}, flash_sd_entropy_scale: {flash_sd_entropy_scale}, flash_sd_lookahead: {flash_sd_lookahead}")
 
 print("Loading tokenizer...")
 tokenizer = AutoTokenizer.from_pretrained(small_model_id)
@@ -111,7 +115,7 @@ model = FSDAutoModelForCausalLM.from_pretrained(
     device_map={"":  device1}
 )
 
-def eval_commonsenseqa(model, small_model, fsd_div_threshold, fsd_div_type, dataset, tokenizer=tokenizer, device=device1, do_sample=do_sample, top_k=top_k, top_p=top_p, temperature=temperature, eval_num=0, exp=exp):
+def eval_commonsenseqa(model, small_model, fsd_div_threshold, fsd_div_type, dataset, tokenizer=tokenizer, device=device1, do_sample=do_sample, top_k=top_k, top_p=top_p, temperature=temperature, eval_num=0, exp=exp, flash_sd_entropy_scale=0.0, flash_sd_lookahead=0.0):
     model_outputs = {'data': []}
     num_words_lengths = []
     backoff_percentages = []
@@ -202,7 +206,7 @@ def eval_commonsenseqa(model, small_model, fsd_div_threshold, fsd_div_type, data
             if fsd_div_threshold == None:
                 outputs = model.generate(**question_tokenized, max_length=question_tokenized['input_ids'].shape[1] + 512, do_sample=do_sample, assistant_model=small_model, temperature=temperature, top_k=top_k, top_p=top_p)
             else:
-                outputs = model.generate(**question_tokenized, max_length=question_tokenized['input_ids'].shape[1] + 512, do_sample=do_sample, assistant_model=small_model, temperature=temperature, top_k=top_k, top_p=top_p, fsd_div_threshold=fsd_div_threshold, fsd_div_type=fsd_div_type)
+                outputs = model.generate(**question_tokenized, max_length=question_tokenized['input_ids'].shape[1] + 512, do_sample=do_sample, assistant_model=small_model, temperature=temperature, top_k=top_k, top_p=top_p, fsd_div_threshold=fsd_div_threshold, fsd_div_type=fsd_div_type, flash_sd_entropy_scale=flash_sd_entropy_scale, flash_sd_lookahead=flash_sd_lookahead)
             
             generated_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
             generated_answer_tokens = outputs[0][question_tokenized['input_ids'].shape[1]:]
@@ -289,7 +293,7 @@ backoff_token_percentage = []
 for i in range(num_evals):
     print(f"starting evaluation {i}")
     starting_time = time.time()
-    eval_outputs, total_generated_tokens = eval_commonsenseqa(model, small_model, fsd_div_threshold, fsd_div_type, dataset['validation'], tokenizer=tokenizer, device=device1, eval_num=i)
+    eval_outputs, total_generated_tokens = eval_commonsenseqa(model, small_model, fsd_div_threshold, fsd_div_type, dataset['validation'], tokenizer=tokenizer, device=device1, eval_num=i, flash_sd_entropy_scale=flash_sd_entropy_scale, flash_sd_lookahead=flash_sd_lookahead)
     elapsed_time = time.time() - starting_time
 
     accuracy, parse_error = calc_accuracy(eval_outputs)
