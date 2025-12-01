@@ -1,2 +1,45 @@
-# FlashSD
-Flash-SD：基于熵制导轨迹对齐的零开销语义推测解码框架。 一种无需训练、即插即用的 LLM 加速方案，通过目标熵自适应调节验证严格度并引入并行前瞻机制，实现 $O(1)$ 复杂度的语义级推理加速。
+# ⚡ Flash-SD: 零开销语义推测解码 (Zero-Overhead Semantic Speculative Decoding)
+
+<div align="center">
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python](https://img.shields.io/badge/Python-3.8%2B-blue)](https://www.python.org/)
+[![Framework](https://img.shields.io/badge/HuggingFace-Transformers-orange)](https://huggingface.co/docs/transformers/index)
+
+**无需训练 (Training-Free) | 即插即用 (Plug-and-Play) | 语境感知 (Context-Aware) | 零开销 (Zero-Overhead)**
+
+</div>
+
+## 📖 摘要 (Abstract)
+
+**Flash-SD** 是一个创新的推测解码框架，旨在打破推理速度、生成质量和验证开销之间的“不可能三角”。与依赖静态阈值或昂贵的 Embedding 验证的现有方法不同，Flash-SD 引入了 **熵制导轨迹对齐 (Entropy-Regulated Trajectory Alignment)** 技术。
+
+通过利用 **目标模型的熵 (Target Model's Entropy)** 作为语境探针，并结合 **并行前瞻锚点 (Parallel Lookahead Anchoring)**，Flash-SD 在实现弹性语义容忍的同时，保持了 **$O(1)$ 的标量级验证开销**。这使得 Flash-SD 能够在不牺牲语义连贯性的前提下，显著提升端到端的推理速度。
+
+---
+
+## 🚀 核心创新：三大支柱 (The "Three Pillars")
+
+Flash-SD 解决了现有推测解码 (SD) 研究中的三个关键痛点：
+
+### 1. 熵制导的弹性容忍 (目标端权威)
+> *解决“静态僵化 (Static Rigidity)”问题*
+
+* **挑战：** 传统的模糊推测解码 (Fuzzy SD) 使用固定阈值，无法适应严谨任务（如代码生成）与开放任务（如创意写作）之间的动态切换。
+* **Flash-SD 方案：** 我们利用 **目标模型的熵** 来动态调节验证阈值。高熵（不确定性高）意味着更宽的语义容忍度，而低熵则强制执行严格匹配。**由“老师”（目标模型）制定规则，而非“学生”（草稿模型）。**
+
+### 2. 零开销 Logit 投影校验
+> *解决“验证税负 (Verification Tax)”问题*
+
+* **挑战：** 现有的语义验证方法往往需要昂贵的 Embedding 余弦相似度计算（$O(d)$ 复杂度），导致显存带宽瓶颈，经常抵消了推测带来的速度收益。
+* **Flash-SD 方案：** 我们证明了 **Logit 空间投影** 是语义对齐的充分代理。Flash-SD 仅使用纯标量运算（$O(1)$）进行验证，彻底消除了向量运算和外部模型依赖。
+
+### 3. 并行轨迹锚定 (前瞻机制)
+> *解决“局部短视 (Local Myopia)”问题*
+
+* **挑战：** 逐词贪婪验证 (Token-wise greedy verification) 容易误杀那些虽然稍有偏离、但能引出通顺后文的有效同义词。
+* **Flash-SD 方案：** 利用 SD 的并行特性，我们“偷看”了 **$t+1$ 时刻的置信度**。如果目标模型对基于当前偏差生成的未来 Token 充满信心，我们就**“救回” (Rescue)** 当前 Token。**用未来的确定性来验证当下的偏差。**
+
+---
+
+##
