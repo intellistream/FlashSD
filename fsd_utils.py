@@ -1761,10 +1761,10 @@ class FuzzyGenerationMixin (GenerationMixin):
 
             if use_flash_sd and candidate_logits is not None:
                 # 实例化 FlashSD
-                verifier = FlashSD(
+                verifier = FlashSDVerifier(
+                    base_threshold=candidate_generator.assistant_model.div_threshold,
                     entropy_scale=flash_sd_entropy_scale,
-                    lookahead=flash_sd_lookahead,
-                    div_type=fsd_div_type
+                    lookahead_confidence=flash_sd_lookahead
                 )
 
                 # 调用核心算法
@@ -1784,6 +1784,7 @@ class FuzzyGenerationMixin (GenerationMixin):
                     is_done_candidate=is_done_candidate
                 )
 
+
                 # 保持原有的 Metric Tracking 逻辑不变
                 if hasattr(candidate_generator.assistant_model, "n_matches_list"):
                     candidate_generator.assistant_model.kl_divs.extend(true_divs.view(-1).tolist())
@@ -1791,7 +1792,7 @@ class FuzzyGenerationMixin (GenerationMixin):
                     candidate_generator.assistant_model.totals_list.append(valid_tokens.shape[-1])
                     candidate_generator.assistant_model.n_discarded_list.append(candidate_input_ids.shape[-1] - n_matches)
                     candidate_generator.assistant_model.candidate_sequences_list.append(candidate_length)
-                print(f"Using FlashSD with entropy_scale={flash_sd_entropy_scale}, lookahead={flash_sd_lookahead}")
+                print(f"FlashSD: candidate_length: {candidate_length}, n_matches: {n_matches}")
 
             elif candidate_logits is not None:
                 start_time = time.time()
